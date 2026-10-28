@@ -19,8 +19,8 @@ st.title("🎯 Intelligent Task Prioritization Agent")
 st.caption("Plan smarter • Prioritize deadlines • Take the next step")
 
 st.info(
-    "This app uses transparent rules to prioritize your tasks "
-    "and optional Groq AI to generate a personalized action plan."
+    "Manage your tasks, track deadlines, receive in-app reminders, "
+    "and generate personalized study plans using Groq AI."
 )
 
 
@@ -40,7 +40,7 @@ if "next_id" not in st.session_state:
 # --------------------------------------------------
 
 def score(task):
-    """Calculate a transparent rule-based priority score."""
+    """Calculate a priority score using urgency, importance, and effort."""
 
     days_left = (task["deadline"] - date.today()).days
 
@@ -93,6 +93,17 @@ def add_task(name, deadline, importance, hours):
     st.session_state.next_id += 1
 
 
+def update_task_deadline(task_id):
+    """Save an edited deadline to the correct task."""
+
+    new_deadline = st.session_state[f"deadline_editor_{task_id}"]
+
+    for task in st.session_state.tasks:
+        if task["id"] == task_id:
+            task["deadline"] = new_deadline
+            break
+
+
 def load_demo_tasks():
     today = date.today()
 
@@ -127,11 +138,11 @@ def load_demo_tasks():
 
 
 # --------------------------------------------------
-# GROQ API KEY
+# GROQ API CONFIGURATION
 # --------------------------------------------------
 
 def get_groq_api_key():
-    """Read the API key from Streamlit Secrets or environment."""
+    """Read the key from Streamlit Secrets or environment variables."""
 
     try:
         key = st.secrets.get("GROQ_API_KEY", "")
@@ -153,9 +164,9 @@ def generate_ai_plan(tasks, user_context):
 
     if not api_key:
         st.warning(
-            "Groq AI is not configured. Add GROQ_API_KEY "
-            "to this test app's Streamlit Secrets. "
-            "Your normal task features will continue to work."
+            "Groq AI is not configured. Add GROQ_API_KEY to the "
+            "test app's Streamlit Secrets. Other features will continue "
+            "to work."
         )
         return
 
@@ -177,7 +188,7 @@ def generate_ai_plan(tasks, user_context):
                     3: "High",
                 }[task["importance"]],
                 "estimated_hours": task["hours"],
-                "rule_based_priority_score": score(task),
+                "priority_score": score(task),
             })
 
         response = client.chat.completions.create(
@@ -187,27 +198,25 @@ def generate_ai_plan(tasks, user_context):
                     "role": "system",
                     "content": (
                         "You are a helpful student task-planning assistant. "
-                        "Create a realistic, student-friendly action plan "
-                        "using only the supplied tasks. Prioritize urgent "
-                        "deadlines, importance, and estimated effort. "
-                        "Explain why tasks should be done in that order. "
-                        "Suggest manageable work sessions and short breaks. "
-                        "Include practical first steps and a suggested "
-                        "schedule. Do not invent tasks or change the "
-                        "provided priority scores. If a deadline has passed, "
-                        "identify it as overdue. The student makes the "
-                        "final decisions."
+                        "Create a realistic study and task plan using only "
+                        "the supplied tasks. Prioritize deadlines, importance, "
+                        "and estimated effort. Explain the order, suggest "
+                        "manageable work sessions and short breaks, and give "
+                        "practical first steps. Respect the supplied deadlines "
+                        "and scores. Identify overdue tasks. The student makes "
+                        "the final decisions."
                     ),
                 },
                 {
                     "role": "user",
                     "content": (
                         f"Today's date: {date.today().isoformat()}\n\n"
-                        f"Pending tasks: {task_details}\n\n"
-                        f"Additional student context: "
+                        f"Pending tasks with current deadlines: "
+                        f"{task_details}\n\n"
+                        f"Student context: "
                         f"{user_context or 'None provided.'}\n\n"
-                        "Generate a prioritized action plan with clear "
-                        "reasons, first steps, and a realistic schedule."
+                        "Create a prioritized action plan with reasons, "
+                        "first steps, and a realistic schedule."
                     ),
                 },
             ],
@@ -220,9 +229,7 @@ def generate_ai_plan(tasks, user_context):
         if plan and plan.strip():
             st.markdown(plan)
         else:
-            st.warning(
-                "The AI returned an empty response. Please try again."
-            )
+            st.warning("The AI returned an empty response. Please try again.")
 
     except Exception as error:
         error_message = str(error).replace(api_key, "[REDACTED]")
@@ -232,13 +239,12 @@ def generate_ai_plan(tasks, user_context):
         )
 
         st.error(
-            f"Groq AI error ({type(error).__name__}): "
-            f"{error_message}"
+            f"Groq AI error ({type(error).__name__}): {error_message}"
         )
 
         st.caption(
-            "Your existing task features remain available. "
-            "Check the Cloud logs for diagnostic details."
+            "Your other task features remain available. "
+            "Check the Streamlit Cloud logs for details."
         )
 
 
@@ -252,12 +258,13 @@ with st.sidebar:
     with st.form("add_task_form", clear_on_submit=True):
         task_name = st.text_input(
             "Task name",
-            placeholder="e.g. Complete DSA assignment",
+            placeholder="e.g. Prepare for internal exam",
         )
 
         deadline = st.date_input(
             "Deadline",
             value=date.today() + timedelta(days=1),
+            min_value=date(1900, 1, 1),
         )
 
         importance = st.select_slider(
@@ -306,6 +313,7 @@ with st.sidebar:
     if st.button("Clear All Tasks", width="stretch"):
         st.session_state.tasks = []
         st.success("All tasks cleared!")
+        st.rerun()
 
 
 # --------------------------------------------------
@@ -404,7 +412,7 @@ for task in st.session_state.tasks:
     if task["status"] != "Pending":
         continue
 
-    days_left = (task["deadline"] - today).days
+    days_left = days_remaining(task)
 
     if days_left < 0:
         overdue_reminders.append(task)
@@ -421,19 +429,16 @@ if overdue_reminders:
     )
 
     for task in overdue_reminders:
-        days_overdue = (today - task["deadline"]).days
+        days_overdue = abs(days_remaining(task))
 
         st.warning(
             f"**{task['name']}** — overdue by {days_overdue} day(s). "
-            "Review its deadline and update your plan."
+            "Review the deadline and update your plan."
         )
 
 if reminders:
-    for task in sorted(
-        reminders,
-        key=lambda item: item["deadline"],
-    ):
-        days_left = (task["deadline"] - today).days
+    for task in sorted(reminders, key=lambda item: item["deadline"]):
+        days_left = days_remaining(task)
 
         if days_left == 0:
             message = "Due today!"
@@ -450,15 +455,15 @@ elif not overdue_reminders:
     )
 
 st.caption(
-    "Reminders appear when this app is open or refreshed. "
-    "They won't send notifications while the app is closed."
+    "In-app reminders appear while the app is open or refreshed. "
+    "They do not send notifications while the app is closed."
 )
 
 st.divider()
 
 
 # --------------------------------------------------
-# TASK LIST
+# TASK LIST WITH EDITABLE DEADLINES
 # --------------------------------------------------
 
 st.subheader("📋 Your Tasks")
@@ -502,6 +507,18 @@ else:
                 f"Effort: {task['hours']:g} hour(s)"
             )
 
+            st.date_input(
+                "📅 Edit deadline",
+                value=task["deadline"],
+                key=f"deadline_editor_{task['id']}",
+                on_change=update_task_deadline,
+                args=(task["id"],),
+                help=(
+                    "Change this date if an exam or assignment "
+                    "deadline has been postponed."
+                ),
+            )
+
         with task_col2:
             st.metric("Priority score", score(task))
 
@@ -538,8 +555,7 @@ if pending_tasks:
     )
 
     st.write(
-        "Based on deadline, importance, and estimated effort, "
-        "here is your recommended task order:"
+        "Recommended order based on deadline, importance, and effort:"
     )
 
     for index, task in enumerate(ranked_tasks, start=1):
@@ -549,6 +565,8 @@ if pending_tasks:
             deadline_label = f"Overdue by {abs(days)} day(s)"
         elif days == 0:
             deadline_label = "Due today"
+        elif days == 1:
+            deadline_label = "Due tomorrow"
         else:
             deadline_label = f"{days} day(s) remaining"
 
@@ -576,7 +594,7 @@ st.write(
 user_context = st.text_area(
     "Additional context (optional)",
     placeholder=(
-        "Example: I have a college exam tomorrow, "
+        "Example: My internal exam is tomorrow, "
         "and I can study for 3 hours today."
     ),
 )
