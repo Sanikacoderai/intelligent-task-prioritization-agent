@@ -69,8 +69,7 @@ def days_remaining(task):
 
 def get_pending_tasks():
     return [
-        task
-        for task in st.session_state.tasks
+        task for task in st.session_state.tasks
         if task["status"] == "Pending"
     ]
 
@@ -80,16 +79,17 @@ def get_pending_tasks():
 # --------------------------------------------------
 
 def add_task(name, deadline, importance, hours):
-    task = {
+    st.session_state.tasks.append({
         "id": st.session_state.next_id,
         "name": name.strip(),
         "deadline": deadline,
         "importance": importance,
         "hours": float(hours),
         "status": "Pending",
-    }
+        "reminder_days": 1,
+        "reminder_enabled": True,
+    })
 
-    st.session_state.tasks.append(task)
     st.session_state.next_id += 1
 
 
@@ -225,10 +225,8 @@ def generate_ai_plan(tasks, user_context):
             )
 
     except Exception as error:
-        # Avoid accidentally displaying the API key in error output.
         error_message = str(error).replace(api_key, "[REDACTED]")
 
-        # Print diagnostic details to the test app's Cloud logs.
         print(
             f"GROQ AI ERROR: {type(error).__name__}: {error_message}"
         )
@@ -245,7 +243,7 @@ def generate_ai_plan(tasks, user_context):
 
 
 # --------------------------------------------------
-# SIDEBAR
+# SIDEBAR: ADD TASK
 # --------------------------------------------------
 
 with st.sidebar:
@@ -299,7 +297,6 @@ with st.sidebar:
                 st.warning("Please enter a task name.")
 
     st.divider()
-
     st.subheader("🧪 Testing")
 
     if st.button("Load Demo Tasks", width="stretch"):
@@ -312,14 +309,23 @@ with st.sidebar:
 
 
 # --------------------------------------------------
-# DASHBOARD SUMMARY
+# SMART PRODUCTIVITY DASHBOARD
 # --------------------------------------------------
 
+st.subheader("📊 Smart Productivity Dashboard")
+
 all_tasks = st.session_state.tasks
-pending_tasks = get_pending_tasks()
+
+total_tasks = len(all_tasks)
+
 completed_tasks = [
     task for task in all_tasks
     if task["status"] == "Completed"
+]
+
+pending_tasks = [
+    task for task in all_tasks
+    if task["status"] == "Pending"
 ]
 
 overdue_tasks = [
@@ -327,12 +333,126 @@ overdue_tasks = [
     if days_remaining(task) < 0
 ]
 
+completion_rate = (
+    len(completed_tasks) / total_tasks
+    if total_tasks > 0
+    else 0
+)
+
 col1, col2, col3, col4 = st.columns(4)
 
-col1.metric("Total Tasks", len(all_tasks))
-col2.metric("Pending", len(pending_tasks))
-col3.metric("Completed", len(completed_tasks))
-col4.metric("Overdue", len(overdue_tasks))
+col1.metric("📝 Total Tasks", total_tasks)
+col2.metric("⏳ Pending", len(pending_tasks))
+col3.metric("✅ Completed", len(completed_tasks))
+col4.metric("🚨 Overdue", len(overdue_tasks))
+
+st.markdown("### 🎯 Overall Completion Progress")
+
+st.progress(
+    completion_rate,
+    text=f"{completion_rate * 100:.1f}% completed",
+)
+
+if total_tasks == 0:
+    st.info("Add a task to start tracking your productivity.")
+elif completion_rate == 1:
+    st.success("Amazing! You have completed every task! 🎉")
+elif overdue_tasks:
+    st.warning(
+        f"You have {len(overdue_tasks)} overdue task(s). "
+        "Consider reviewing these first."
+    )
+else:
+    st.success("Keep going! You're making progress. 💪")
+
+st.markdown("### 📈 Task Status Overview")
+
+chart_data = {
+    "Status": ["Completed", "Pending", "Overdue"],
+    "Number of Tasks": [
+        len(completed_tasks),
+        len(pending_tasks) - len(overdue_tasks),
+        len(overdue_tasks),
+    ],
+}
+
+st.bar_chart(
+    chart_data,
+    x="Status",
+    y="Number of Tasks",
+)
+
+st.caption(
+    "Overdue tasks are included in Pending and highlighted separately "
+    "in the chart for easier tracking."
+)
+
+st.divider()
+
+
+# --------------------------------------------------
+# IN-APP REMINDERS
+# --------------------------------------------------
+
+st.subheader("🔔 Upcoming Task Reminders")
+
+today = date.today()
+reminders = []
+overdue_reminders = []
+
+for task in st.session_state.tasks:
+    if task["status"] != "Pending":
+        continue
+
+    days_left = (task["deadline"] - today).days
+
+    if days_left < 0:
+        overdue_reminders.append(task)
+
+    elif (
+        task.get("reminder_enabled", True)
+        and days_left <= task.get("reminder_days", 1)
+    ):
+        reminders.append(task)
+
+if overdue_reminders:
+    st.error(
+        f"🚨 You have {len(overdue_reminders)} overdue task(s)!"
+    )
+
+    for task in overdue_reminders:
+        days_overdue = (today - task["deadline"]).days
+
+        st.warning(
+            f"**{task['name']}** — overdue by {days_overdue} day(s). "
+            "Review its deadline and update your plan."
+        )
+
+if reminders:
+    for task in sorted(
+        reminders,
+        key=lambda item: item["deadline"],
+    ):
+        days_left = (task["deadline"] - today).days
+
+        if days_left == 0:
+            message = "Due today!"
+        elif days_left == 1:
+            message = "Due tomorrow!"
+        else:
+            message = f"Due in {days_left} days!"
+
+        st.info(f"🔔 **{task['name']}** — {message}")
+
+elif not overdue_reminders:
+    st.success(
+        "You're all caught up! No reminders due right now. 🎉"
+    )
+
+st.caption(
+    "Reminders appear when this app is open or refreshed. "
+    "They won't send notifications while the app is closed."
+)
 
 st.divider()
 
@@ -359,9 +479,7 @@ else:
     )
 
     for task in sorted_tasks:
-        task_col1, task_col2, task_col3 = st.columns(
-            [5, 2, 1]
-        )
+        task_col1, task_col2, task_col3 = st.columns([5, 2, 1])
 
         days = days_remaining(task)
 
@@ -385,10 +503,7 @@ else:
             )
 
         with task_col2:
-            st.metric(
-                "Priority score",
-                score(task),
-            )
+            st.metric("Priority score", score(task))
 
         with task_col3:
             if task["status"] == "Pending":
