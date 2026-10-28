@@ -133,13 +133,11 @@ def generate_ai_plan(tasks, user_context):
             st.markdown(plan)
         else:
             st.warning("The AI returned an empty response. Please try again.")
-
-    except Exception:
-        st.error(
-            "Groq AI could not generate the plan. Check your API key, "
-            "Groq service availability and app logs. Your existing task "
-            "features are still available."
-        )
+        
+        except Exception as e:
+    import traceback
+    print("GROQ AI ERROR:", traceback.format_exc())
+    st.error(f"Groq AI error: {type(e).__name__}: {e}")
 
 
 with st.sidebar:
